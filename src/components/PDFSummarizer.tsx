@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, Copy, CheckCircle } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { createWorker } from 'tesseract.js';
 
 interface PDFSummarizerProps {
   file: File;
@@ -16,19 +17,50 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
   const [copied, setCopied] = useState(false);
   const { toast } = useToast();
 
+  const performOCR = async (canvas: HTMLCanvasElement) => {
+    const worker = await createWorker();
+    await worker.loadLanguage('eng');
+    await worker.initialize('eng');
+    const { data: { text } } = await worker.recognize(canvas);
+    await worker.terminate();
+    return text;
+  };
+
   const summarizePDF = async () => {
     setLoading(true);
     try {
-      // Read the PDF file as text using PDF.js
       const arrayBuffer = await file.arrayBuffer();
       const pdfjsLib = window['pdfjs-dist/build/pdf'];
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
       
       let fullText = '';
+      
+      // Process each page
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
+        
+        // Try to get text content first
         const textContent = await page.getTextContent();
-        const pageText = textContent.items.map((item: any) => item.str).join(' ');
+        let pageText = textContent.items.map((item: any) => item.str).join(' ');
+        
+        // If no text is extracted, try OCR
+        if (!pageText.trim()) {
+          const viewport = page.getViewport({ scale: 2.0 }); // Higher scale for better OCR
+          const canvas = document.createElement('canvas');
+          const context = canvas.getContext('2d');
+          
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          
+          await page.render({
+            canvasContext: context!,
+            viewport: viewport
+          }).promise;
+          
+          // Perform OCR on the canvas
+          pageText = await performOCR(canvas);
+        }
+        
         fullText += pageText + ' ';
       }
       
