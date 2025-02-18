@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { Card } from "@/components/ui/card";
@@ -43,10 +42,11 @@ const Index = () => {
         <div className="flex justify-end">
           <Button
             variant="outline"
-            size="icon"
             onClick={() => setShowApiModal(true)}
+            className="gap-2"
           >
             <Settings className="h-4 w-4" />
+            Set API Key
           </Button>
         </div>
 
