@@ -26,6 +26,17 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
     return text;
   };
 
+  const formatSummary = (text: string) => {
+    // Remove "Paragraf X:" prefixes and clean up the text
+    return text
+      .replace(/\*\*Paragraf \d+:\*\*/g, '')
+      .replace(/Paragraf \d+:/g, '')
+      .split('\n')
+      .map(paragraph => paragraph.trim())
+      .filter(paragraph => paragraph.length > 0)
+      .join('\n\n');
+  };
+
   const summarizePDF = async () => {
     setLoading(true);
     try {
@@ -86,9 +97,9 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
       // Generate summary
       const result = await model.generateContent(prompt);
       const response = await result.response;
-      const summary = response.text();
+      const formattedSummary = formatSummary(response.text());
       
-      setSummary(summary);
+      setSummary(formattedSummary);
       toast({
         title: "Success",
         description: "Your PDF has been successfully summarized!",
@@ -145,7 +156,7 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
       {summary && (
         <div className="space-y-4">
           <div className="relative">
-            <div className="bg-gray-50 rounded-lg p-4 text-gray-700">
+            <div className="bg-gray-50 rounded-lg p-4 text-gray-700 whitespace-pre-line">
               {summary}
             </div>
             <Button
