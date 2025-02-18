@@ -19,23 +19,37 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
   const summarizePDF = async () => {
     setLoading(true);
     try {
-      // First, read the PDF file
+      // Read the PDF file as text using PDF.js
       const arrayBuffer = await file.arrayBuffer();
-      const pdfData = new Uint8Array(arrayBuffer);
+      const pdfjsLib = window['pdfjs-dist/build/pdf'];
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      
+      let fullText = '';
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items.map((item: any) => item.str).join(' ');
+        fullText += pageText + ' ';
+      }
       
       // Initialize Gemini AI
-      const genAI = new GoogleGenerativeAI(window.localStorage.getItem("GEMINI_API_KEY") || "");
+      const apiKey = window.localStorage.getItem("GEMINI_API_KEY");
+      if (!apiKey) {
+        toast({
+          title: "No API Key Found",
+          description: "Please set your Gemini API key in the settings",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ model: "gemini-pro" });
 
-      // Convert PDF to text using pdf-parse
-      const pdfjsLib = await import("pdf-parse");
-      const data = await pdfjsLib.default(pdfData);
-      const text = data.text;
-
-      // Prepare the prompt
+      // Prepare the prompt with the extracted text
       const prompt = `Please summarize the following text. ${
         instructions ? `Additional instructions: ${instructions}` : ""
-      }\n\nText to summarize: ${text}`;
+      }\n\nText to summarize: ${fullText}`;
 
       // Generate summary
       const result = await model.generateContent(prompt);
@@ -44,14 +58,14 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
       
       setSummary(summary);
       toast({
-        title: "Summary generated",
+        title: "Success",
         description: "Your PDF has been successfully summarized!",
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error summarizing PDF:", error);
       toast({
         title: "Error",
-        description: "Failed to summarize PDF. Please check your API key and try again.",
+        description: error.message || "Failed to summarize PDF. Please try again.",
         variant: "destructive",
       });
     } finally {
