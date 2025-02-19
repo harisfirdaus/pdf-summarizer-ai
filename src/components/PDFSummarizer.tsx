@@ -213,7 +213,7 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
                     htmlFor={`page-${page.pageNum}`}
                     className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
                   >
-                    Page {page.pageNum}
+                    {page.pageNum}
                   </label>
                 </div>
               ))}
