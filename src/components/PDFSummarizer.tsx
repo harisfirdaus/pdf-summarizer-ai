@@ -1,20 +1,29 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Loader2, Copy, CheckCircle } from "lucide-react";
+import { Loader2, Copy, CheckCircle, FileDown, SplitSquareHorizontal } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createWorker } from 'tesseract.js';
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface PDFSummarizerProps {
   file: File;
   instructions: string;
 }
 
+interface PageSelection {
+  pageNum: number;
+  selected: boolean;
+}
+
 const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState("");
   const [copied, setCopied] = useState(false);
+  const [totalPages, setTotalPages] = useState(0);
+  const [pageSelections, setPageSelections] = useState<PageSelection[]>([]);
+  const [splitLoading, setSplitLoading] = useState(false);
   const { toast } = useToast();
 
   const performOCR = async (canvas: HTMLCanvasElement) => {
@@ -40,7 +49,6 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
   const handleApiError = (error: any) => {
     console.error("API Error:", error);
     
-    // Check if it's a rate limit error
     if (error.status === 429) {
       toast({
         title: "API Quota Exceeded",
@@ -50,7 +58,6 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
       return;
     }
 
-    // Handle other API errors
     const errorMessage = error.body ? JSON.parse(error.body)?.error?.message : error.message;
     toast({
       title: "Error",
@@ -59,7 +66,88 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
     });
   };
 
+  const initializePDF = async () => {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdfjsLib = window['pdfjs-dist/build/pdf'];
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      setTotalPages(pdf.numPages);
+      setPageSelections(Array.from({ length: pdf.numPages }, (_, i) => ({
+        pageNum: i + 1,
+        selected: false
+      })));
+    } catch (error) {
+      console.error("Error initializing PDF:", error);
+      toast({
+        title: "Error",
+        description: "Failed to load PDF file",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const splitPDF = async () => {
+    setSplitLoading(true);
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdfjsLib = window['pdfjs-dist/build/pdf'];
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const viewport = page.getViewport({ scale: 1.0 });
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        
+        await page.render({
+          canvasContext: context!,
+          viewport: viewport
+        }).promise;
+        
+        // Convert canvas to blob and download
+        canvas.toBlob((blob) => {
+          if (blob) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${file.name.replace('.pdf', '')}_page_${i}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          }
+        }, 'application/pdf');
+      }
+      
+      toast({
+        title: "Success",
+        description: "PDF pages have been split and downloaded",
+      });
+    } catch (error) {
+      console.error("Error splitting PDF:", error);
+      toast({
+        title: "Error",
+        description: "Failed to split PDF file",
+        variant: "destructive",
+      });
+    } finally {
+      setSplitLoading(false);
+    }
+  };
+
   const summarizePDF = async () => {
+    if (!pageSelections.some(page => page.selected)) {
+      toast({
+        title: "No Pages Selected",
+        description: "Please select at least one page to summarize",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setLoading(true);
     try {
       const arrayBuffer = await file.arrayBuffer();
@@ -68,17 +156,16 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
       
       let fullText = '';
       
-      // Process each page
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
+      // Process only selected pages
+      for (const selection of pageSelections) {
+        if (!selection.selected) continue;
         
-        // Try to get text content first
+        const page = await pdf.getPage(selection.pageNum);
         const textContent = await page.getTextContent();
         let pageText = textContent.items.map((item: any) => item.str).join(' ');
         
-        // If no text is extracted, try OCR
         if (!pageText.trim()) {
-          const viewport = page.getViewport({ scale: 2.0 }); // Higher scale for better OCR
+          const viewport = page.getViewport({ scale: 2.0 });
           const canvas = document.createElement('canvas');
           const context = canvas.getContext('2d');
           
@@ -90,14 +177,12 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
             viewport: viewport
           }).promise;
           
-          // Perform OCR on the canvas
           pageText = await performOCR(canvas);
         }
         
-        fullText += pageText + ' ';
+        fullText += `Page ${selection.pageNum}: ${pageText}\n\n`;
       }
       
-      // Initialize Gemini AI
       const apiKey = window.localStorage.getItem("GEMINI_API_KEY");
       if (!apiKey) {
         toast({
@@ -111,12 +196,10 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
       const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ model: "gemini-pro" });
 
-      // Prepare the prompt with the extracted text
       const prompt = `Please summarize the following text. ${
         instructions ? `Additional instructions: ${instructions}` : ""
       }\n\nText to summarize: ${fullText}`;
 
-      // Generate summary
       const result = await model.generateContent(prompt);
       const response = await result.response;
       const formattedSummary = formatSummary(response.text());
@@ -124,7 +207,7 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
       setSummary(formattedSummary);
       toast({
         title: "Success",
-        description: "Your PDF has been successfully summarized!",
+        description: "Selected pages have been summarized!",
       });
     } catch (error: any) {
       handleApiError(error);
@@ -132,6 +215,23 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
       setLoading(false);
     }
   };
+
+  const togglePageSelection = (pageNum: number) => {
+    setPageSelections(prev => 
+      prev.map(page => 
+        page.pageNum === pageNum 
+          ? { ...page, selected: !page.selected }
+          : page
+      )
+    );
+  };
+
+  // Initialize PDF when file changes
+  useState(() => {
+    if (file) {
+      initializePDF();
+    }
+  }, [file]);
 
   const copyToClipboard = async () => {
     try {
@@ -153,7 +253,51 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-4">
+        <div className="flex gap-2">
+          <Button
+            onClick={splitPDF}
+            disabled={splitLoading}
+            className="w-full"
+            variant="outline"
+          >
+            {splitLoading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Splitting PDF...
+              </>
+            ) : (
+              <>
+                <SplitSquareHorizontal className="mr-2 h-4 w-4" />
+                Split PDF into Pages
+              </>
+            )}
+          </Button>
+        </div>
+
+        {totalPages > 0 && (
+          <div className="bg-gray-50 rounded-lg p-4">
+            <h3 className="text-sm font-medium mb-2">Select pages to summarize:</h3>
+            <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+              {pageSelections.map((page) => (
+                <div key={page.pageNum} className="flex items-center space-x-2">
+                  <Checkbox
+                    id={`page-${page.pageNum}`}
+                    checked={page.selected}
+                    onCheckedChange={() => togglePageSelection(page.pageNum)}
+                  />
+                  <label
+                    htmlFor={`page-${page.pageNum}`}
+                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                  >
+                    Page {page.pageNum}
+                  </label>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <Button
           onClick={summarizePDF}
           disabled={loading}
@@ -165,7 +309,7 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
               Summarizing...
             </>
           ) : (
-            "Generate Summary"
+            "Summarize Selected Pages"
           )}
         </Button>
       </div>
