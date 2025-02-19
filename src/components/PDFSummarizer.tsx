@@ -37,6 +37,28 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
       .join('\n\n');
   };
 
+  const handleApiError = (error: any) => {
+    console.error("API Error:", error);
+    
+    // Check if it's a rate limit error
+    if (error.status === 429) {
+      toast({
+        title: "API Quota Exceeded",
+        description: "You've reached the API rate limit. Please try again after a few minutes or use a different API key.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Handle other API errors
+    const errorMessage = error.body ? JSON.parse(error.body)?.error?.message : error.message;
+    toast({
+      title: "Error",
+      description: errorMessage || "Failed to summarize PDF. Please try again.",
+      variant: "destructive",
+    });
+  };
+
   const summarizePDF = async () => {
     setLoading(true);
     try {
@@ -105,12 +127,7 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
         description: "Your PDF has been successfully summarized!",
       });
     } catch (error: any) {
-      console.error("Error summarizing PDF:", error);
-      toast({
-        title: "Error",
-        description: error.message || "Failed to summarize PDF. Please try again.",
-        variant: "destructive",
-      });
+      handleApiError(error);
     } finally {
       setLoading(false);
     }
