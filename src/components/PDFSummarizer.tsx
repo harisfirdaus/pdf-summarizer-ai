@@ -6,6 +6,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createWorker } from 'tesseract.js';
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 
 interface PDFSummarizerProps {
   file: File;
@@ -15,6 +16,7 @@ interface PDFSummarizerProps {
 interface PageSelection {
   pageNum: number;
   selected: boolean;
+  articleTitle: string;
 }
 
 const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
@@ -34,14 +36,20 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
     return text;
   };
 
-  const formatSummary = (text: string) => {
-    return text
-      .replace(/\*\*Paragraf \d+:\*\*/g, '')
-      .replace(/Paragraf \d+:/g, '')
-      .split('\n')
-      .map(paragraph => paragraph.trim())
-      .filter(paragraph => paragraph.length > 0)
-      .join('\n\n');
+  const formatSummary = (summariesWithTitles: { title: string, text: string }[]) => {
+    return summariesWithTitles
+      .map(({ title, text }) => {
+        const formattedText = text
+          .replace(/\*\*Paragraf \d+:\*\*/g, '')
+          .replace(/Paragraf \d+:/g, '')
+          .split('\n')
+          .map(paragraph => paragraph.trim())
+          .filter(paragraph => paragraph.length > 0)
+          .join('\n\n');
+        
+        return `## ${title}\n\n${formattedText}`;
+      })
+      .join('\n\n---\n\n');
   };
 
   const handleApiError = (error: any) => {
@@ -72,7 +80,8 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
       setTotalPages(pdf.numPages);
       setPageSelections(Array.from({ length: pdf.numPages }, (_, i) => ({
         pageNum: i + 1,
-        selected: false
+        selected: false,
+        articleTitle: ""
       })));
     } catch (error) {
       console.error("Error initializing PDF:", error);
@@ -85,10 +94,22 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
   };
 
   const summarizePDF = async () => {
-    if (!pageSelections.some(page => page.selected)) {
+    const selectedPages = pageSelections.filter(page => page.selected);
+    
+    if (selectedPages.length === 0) {
       toast({
         title: "No Pages Selected",
         description: "Please select at least one page to summarize",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const missingTitles = selectedPages.some(page => !page.articleTitle.trim());
+    if (missingTitles) {
+      toast({
+        title: "Missing Article Titles",
+        description: "Please provide titles for all selected articles",
         variant: "destructive",
       });
       return;
@@ -100,11 +121,9 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
       const pdfjsLib = window['pdfjs-dist/build/pdf'];
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
       
-      let fullText = '';
+      const summaries = [];
       
-      for (const selection of pageSelections) {
-        if (!selection.selected) continue;
-        
+      for (const selection of selectedPages) {
         const page = await pdf.getPage(selection.pageNum);
         const textContent = await page.getTextContent();
         let pageText = textContent.items.map((item: any) => item.str).join(' ');
@@ -125,34 +144,38 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
           pageText = await performOCR(canvas);
         }
         
-        fullText += `Page ${selection.pageNum}: ${pageText}\n\n`;
-      }
-      
-      const apiKey = window.localStorage.getItem("GEMINI_API_KEY");
-      if (!apiKey) {
-        toast({
-          title: "No API Key Found",
-          description: "Please set your Gemini API key in the settings",
-          variant: "destructive",
+        const apiKey = window.localStorage.getItem("GEMINI_API_KEY");
+        if (!apiKey) {
+          toast({
+            title: "No API Key Found",
+            description: "Please set your Gemini API key in the settings",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+
+        const prompt = `Please summarize the following text. ${
+          instructions ? `Additional instructions: ${instructions}` : ""
+        }\n\nText to summarize: ${pageText}`;
+
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        
+        summaries.push({
+          title: selection.articleTitle,
+          text: response.text()
         });
-        return;
       }
-
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-
-      const prompt = `Please summarize the following text. ${
-        instructions ? `Additional instructions: ${instructions}` : ""
-      }\n\nText to summarize: ${fullText}`;
-
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      const formattedSummary = formatSummary(response.text());
       
+      const formattedSummary = formatSummary(summaries);
       setSummary(formattedSummary);
+      
       toast({
         title: "Success",
-        description: "Selected pages have been summarized!",
+        description: "Selected articles have been summarized!",
       });
     } catch (error: any) {
       handleApiError(error);
@@ -166,6 +189,16 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
       prev.map(page => 
         page.pageNum === pageNum 
           ? { ...page, selected: !page.selected }
+          : page
+      )
+    );
+  };
+
+  const updateArticleTitle = (pageNum: number, title: string) => {
+    setPageSelections(prev =>
+      prev.map(page =>
+        page.pageNum === pageNum
+          ? { ...page, articleTitle: title }
           : page
       )
     );
@@ -200,21 +233,31 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
       <div className="flex flex-col gap-4">
         {totalPages > 0 && (
           <div className="bg-gray-50 rounded-lg p-4">
-            <h3 className="text-sm font-medium mb-2">Select pages to summarize:</h3>
-            <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+            <h3 className="text-sm font-medium mb-2">Select articles to summarize:</h3>
+            <div className="grid grid-cols-1 gap-3">
               {pageSelections.map((page) => (
-                <div key={page.pageNum} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={`page-${page.pageNum}`}
-                    checked={page.selected}
-                    onCheckedChange={() => togglePageSelection(page.pageNum)}
-                  />
-                  <label
-                    htmlFor={`page-${page.pageNum}`}
-                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                  >
-                    {page.pageNum}
-                  </label>
+                <div key={page.pageNum} className="flex items-start space-x-3">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id={`page-${page.pageNum}`}
+                      checked={page.selected}
+                      onCheckedChange={() => togglePageSelection(page.pageNum)}
+                    />
+                    <label
+                      htmlFor={`page-${page.pageNum}`}
+                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                    >
+                      {page.pageNum}
+                    </label>
+                  </div>
+                  {page.selected && (
+                    <Input
+                      placeholder="Enter article title..."
+                      value={page.articleTitle}
+                      onChange={(e) => updateArticleTitle(page.pageNum, e.target.value)}
+                      className="flex-1"
+                    />
+                  )}
                 </div>
               ))}
             </div>
@@ -232,7 +275,7 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
               Summarizing...
             </>
           ) : (
-            "Summarize Selected Pages"
+            "Summarize Selected Articles"
           )}
         </Button>
       </div>
