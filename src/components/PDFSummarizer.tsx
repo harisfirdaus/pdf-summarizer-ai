@@ -1,6 +1,7 @@
+
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Loader2, Copy, CheckCircle, FileDown, SplitSquareHorizontal } from "lucide-react";
+import { Loader2, Copy, CheckCircle } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createWorker } from 'tesseract.js';
@@ -22,7 +23,6 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
   const [copied, setCopied] = useState(false);
   const [totalPages, setTotalPages] = useState(0);
   const [pageSelections, setPageSelections] = useState<PageSelection[]>([]);
-  const [splitLoading, setSplitLoading] = useState(false);
   const { toast } = useToast();
 
   const performOCR = async (canvas: HTMLCanvasElement) => {
@@ -81,57 +81,6 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
         description: "Failed to load PDF file",
         variant: "destructive",
       });
-    }
-  };
-
-  const splitPDF = async () => {
-    setSplitLoading(true);
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      const pdfjsLib = window['pdfjs-dist/build/pdf'];
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const viewport = page.getViewport({ scale: 1.0 });
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d');
-        
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        
-        await page.render({
-          canvasContext: context!,
-          viewport: viewport
-        }).promise;
-        
-        canvas.toBlob((blob) => {
-          if (blob) {
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `${file.name.replace('.pdf', '')}_page_${i}.pdf`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-          }
-        }, 'application/pdf');
-      }
-      
-      toast({
-        title: "Success",
-        description: "PDF pages have been split and downloaded",
-      });
-    } catch (error) {
-      console.error("Error splitting PDF:", error);
-      toast({
-        title: "Error",
-        description: "Failed to split PDF file",
-        variant: "destructive",
-      });
-    } finally {
-      setSplitLoading(false);
     }
   };
 
@@ -249,27 +198,6 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-4">
-        <div className="flex gap-2">
-          <Button
-            onClick={splitPDF}
-            disabled={splitLoading}
-            className="w-full"
-            variant="outline"
-          >
-            {splitLoading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Splitting PDF...
-              </>
-            ) : (
-              <>
-                <SplitSquareHorizontal className="mr-2 h-4 w-4" />
-                Split PDF into Pages
-              </>
-            )}
-          </Button>
-        </div>
-
         {totalPages > 0 && (
           <div className="bg-gray-50 rounded-lg p-4">
             <h3 className="text-sm font-medium mb-2">Select pages to summarize:</h3>
