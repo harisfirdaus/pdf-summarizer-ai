@@ -1,5 +1,4 @@
-
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Loader2, Copy, CheckCircle, FileDown, SplitSquareHorizontal } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
@@ -36,7 +35,6 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
   };
 
   const formatSummary = (text: string) => {
-    // Remove "Paragraf X:" prefixes and clean up the text
     return text
       .replace(/\*\*Paragraf \d+:\*\*/g, '')
       .replace(/Paragraf \d+:/g, '')
@@ -107,7 +105,6 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
           viewport: viewport
         }).promise;
         
-        // Convert canvas to blob and download
         canvas.toBlob((blob) => {
           if (blob) {
             const url = URL.createObjectURL(blob);
@@ -156,7 +153,6 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
       
       let fullText = '';
       
-      // Process only selected pages
       for (const selection of pageSelections) {
         if (!selection.selected) continue;
         
@@ -226,8 +222,7 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
     );
   };
 
-  // Initialize PDF when file changes
-  useState(() => {
+  useEffect(() => {
     if (file) {
       initializePDF();
     }
