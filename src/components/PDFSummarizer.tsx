@@ -6,7 +6,6 @@ import { useToast } from "@/components/ui/use-toast";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createWorker } from 'tesseract.js';
 import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
 
 interface PDFSummarizerProps {
   file: File;
@@ -16,7 +15,6 @@ interface PDFSummarizerProps {
 interface PageSelection {
   pageNum: number;
   selected: boolean;
-  articleTitle: string;
 }
 
 const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
@@ -36,20 +34,14 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
     return text;
   };
 
-  const formatSummary = (summariesWithTitles: { title: string, text: string }[]) => {
-    return summariesWithTitles
-      .map(({ title, text }) => {
-        const formattedText = text
-          .replace(/\*\*Paragraf \d+:\*\*/g, '')
-          .replace(/Paragraf \d+:/g, '')
-          .split('\n')
-          .map(paragraph => paragraph.trim())
-          .filter(paragraph => paragraph.length > 0)
-          .join('\n\n');
-        
-        return `## ${title}\n\n${formattedText}`;
-      })
-      .join('\n\n---\n\n');
+  const formatSummary = (text: string) => {
+    return text
+      .replace(/\*\*Paragraf \d+:\*\*/g, '')
+      .replace(/Paragraf \d+:/g, '')
+      .split('\n')
+      .map(paragraph => paragraph.trim())
+      .filter(paragraph => paragraph.length > 0)
+      .join('\n\n');
   };
 
   const handleApiError = (error: any) => {
@@ -80,8 +72,7 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
       setTotalPages(pdf.numPages);
       setPageSelections(Array.from({ length: pdf.numPages }, (_, i) => ({
         pageNum: i + 1,
-        selected: false,
-        articleTitle: ""
+        selected: false
       })));
     } catch (error) {
       console.error("Error initializing PDF:", error);
@@ -100,16 +91,6 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
       toast({
         title: "No Pages Selected",
         description: "Please select at least one page to summarize",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const missingTitles = selectedPages.some(page => !page.articleTitle.trim());
-    if (missingTitles) {
-      toast({
-        title: "Missing Article Titles",
-        description: "Please provide titles for all selected articles",
         variant: "destructive",
       });
       return;
@@ -163,19 +144,14 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
 
         const result = await model.generateContent(prompt);
         const response = await result.response;
-        
-        summaries.push({
-          title: selection.articleTitle,
-          text: response.text()
-        });
+        summaries.push(formatSummary(response.text()));
       }
       
-      const formattedSummary = formatSummary(summaries);
-      setSummary(formattedSummary);
+      setSummary(summaries.join('\n\n'));
       
       toast({
         title: "Success",
-        description: "Selected articles have been summarized!",
+        description: "Selected pages have been summarized!",
       });
     } catch (error: any) {
       handleApiError(error);
@@ -189,16 +165,6 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
       prev.map(page => 
         page.pageNum === pageNum 
           ? { ...page, selected: !page.selected }
-          : page
-      )
-    );
-  };
-
-  const updateArticleTitle = (pageNum: number, title: string) => {
-    setPageSelections(prev =>
-      prev.map(page =>
-        page.pageNum === pageNum
-          ? { ...page, articleTitle: title }
           : page
       )
     );
@@ -233,31 +199,21 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
       <div className="flex flex-col gap-4">
         {totalPages > 0 && (
           <div className="bg-gray-50 rounded-lg p-4">
-            <h3 className="text-sm font-medium mb-2">Select articles to summarize:</h3>
-            <div className="grid grid-cols-1 gap-3">
+            <h3 className="text-sm font-medium mb-2">Select pages to summarize:</h3>
+            <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
               {pageSelections.map((page) => (
-                <div key={page.pageNum} className="flex items-start space-x-3">
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id={`page-${page.pageNum}`}
-                      checked={page.selected}
-                      onCheckedChange={() => togglePageSelection(page.pageNum)}
-                    />
-                    <label
-                      htmlFor={`page-${page.pageNum}`}
-                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                    >
-                      {page.pageNum}
-                    </label>
-                  </div>
-                  {page.selected && (
-                    <Input
-                      placeholder="Enter article title..."
-                      value={page.articleTitle}
-                      onChange={(e) => updateArticleTitle(page.pageNum, e.target.value)}
-                      className="flex-1"
-                    />
-                  )}
+                <div key={page.pageNum} className="flex items-center space-x-2">
+                  <Checkbox
+                    id={`page-${page.pageNum}`}
+                    checked={page.selected}
+                    onCheckedChange={() => togglePageSelection(page.pageNum)}
+                  />
+                  <label
+                    htmlFor={`page-${page.pageNum}`}
+                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                  >
+                    {page.pageNum}
+                  </label>
                 </div>
               ))}
             </div>
@@ -275,7 +231,7 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
               Summarizing...
             </>
           ) : (
-            "Summarize Selected Articles"
+            "Summarize Selected Pages"
           )}
         </Button>
       </div>
