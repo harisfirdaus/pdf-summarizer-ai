@@ -1,11 +1,13 @@
 
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Loader2, Copy, CheckCircle } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { createWorker } from 'tesseract.js';
-import { Checkbox } from "@/components/ui/checkbox";
+import PageSelector from "./PageSelector";
+import SummaryDisplay from "./SummaryDisplay";
+import { performOCR } from "../utils/ocrUtils";
+import { formatSummary } from "../utils/textUtils";
 
 interface PDFSummarizerProps {
   file: File;
@@ -20,29 +22,9 @@ interface PageSelection {
 const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState("");
-  const [copied, setCopied] = useState(false);
   const [totalPages, setTotalPages] = useState(0);
   const [pageSelections, setPageSelections] = useState<PageSelection[]>([]);
   const { toast } = useToast();
-
-  const performOCR = async (canvas: HTMLCanvasElement) => {
-    const worker = await createWorker();
-    await worker.loadLanguage('eng');
-    await worker.initialize('eng');
-    const { data: { text } } = await worker.recognize(canvas);
-    await worker.terminate();
-    return text;
-  };
-
-  const formatSummary = (text: string) => {
-    return text
-      .replace(/\*\*Paragraf \d+:\*\*/g, '')
-      .replace(/Paragraf \d+:/g, '')
-      .split('\n')
-      .map(paragraph => paragraph.trim())
-      .filter(paragraph => paragraph.length > 0)
-      .join('\n\n');
-  };
 
   const handleApiError = (error: any) => {
     console.error("API Error:", error);
@@ -82,6 +64,16 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
         variant: "destructive",
       });
     }
+  };
+
+  const togglePageSelection = (pageNum: number) => {
+    setPageSelections(prev => 
+      prev.map(page => 
+        page.pageNum === pageNum 
+          ? { ...page, selected: !page.selected }
+          : page
+      )
+    );
   };
 
   const summarizePDF = async () => {
@@ -160,64 +152,20 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
     }
   };
 
-  const togglePageSelection = (pageNum: number) => {
-    setPageSelections(prev => 
-      prev.map(page => 
-        page.pageNum === pageNum 
-          ? { ...page, selected: !page.selected }
-          : page
-      )
-    );
-  };
-
   useEffect(() => {
     if (file) {
       initializePDF();
     }
   }, [file]);
 
-  const copyToClipboard = async () => {
-    try {
-      await navigator.clipboard.writeText(summary);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-      toast({
-        title: "Copied",
-        description: "Summary copied to clipboard",
-      });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to copy to clipboard",
-        variant: "destructive",
-      });
-    }
-  };
-
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-4">
         {totalPages > 0 && (
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h3 className="text-sm font-medium mb-2">Select pages to summarize:</h3>
-            <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
-              {pageSelections.map((page) => (
-                <div key={page.pageNum} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={`page-${page.pageNum}`}
-                    checked={page.selected}
-                    onCheckedChange={() => togglePageSelection(page.pageNum)}
-                  />
-                  <label
-                    htmlFor={`page-${page.pageNum}`}
-                    className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                  >
-                    {page.pageNum}
-                  </label>
-                </div>
-              ))}
-            </div>
-          </div>
+          <PageSelector
+            pageSelections={pageSelections}
+            onTogglePage={togglePageSelection}
+          />
         )}
 
         <Button
@@ -236,29 +184,10 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
         </Button>
       </div>
 
-      {summary && (
-        <div className="space-y-4">
-          <div className="relative">
-            <div className="bg-gray-50 rounded-lg p-4 text-gray-700 whitespace-pre-line">
-              {summary}
-            </div>
-            <Button
-              variant="outline"
-              size="icon"
-              className="absolute top-2 right-2"
-              onClick={copyToClipboard}
-            >
-              {copied ? (
-                <CheckCircle className="h-4 w-4 text-green-500" />
-              ) : (
-                <Copy className="h-4 w-4" />
-              )}
-            </Button>
-          </div>
-        </div>
-      )}
+      {summary && <SummaryDisplay summary={summary} />}
     </div>
   );
 };
 
 export default PDFSummarizer;
+
