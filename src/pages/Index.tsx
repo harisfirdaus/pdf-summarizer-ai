@@ -70,7 +70,7 @@ const Index = () => {
             Summarize any PDF document
           </h1>
           <p className="text-gray-500 max-w-md mx-auto">
-            Upload your PDF and get an AI-powered summary using Google's Gemini
+            Upload your PDF and get an AI-powered summary
           </p>
         </div>
 

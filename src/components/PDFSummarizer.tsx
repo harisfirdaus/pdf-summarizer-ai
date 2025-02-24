@@ -95,52 +95,94 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
       
       const summaries = [];
-      
-      for (const selection of selectedPages) {
-        const page = await pdf.getPage(selection.pageNum);
-        const textContent = await page.getTextContent();
-        let pageText = textContent.items.map((item: any) => item.str).join(' ');
-        
-        if (!pageText.trim()) {
-          const viewport = page.getViewport({ scale: 2.0 });
-          const canvas = document.createElement('canvas');
-          const context = canvas.getContext('2d');
-          
-          canvas.width = viewport.width;
-          canvas.height = viewport.height;
-          
-          await page.render({
-            canvasContext: context!,
-            viewport: viewport
-          }).promise;
-          
-          pageText = await performOCR(canvas);
-        }
-        
-        const apiKey = window.localStorage.getItem("GEMINI_API_KEY");
-        if (!apiKey) {
-          toast({
-            title: "No API Key Found",
-            description: "Please set your Gemini API key in the settings",
-            variant: "destructive",
-          });
-          return;
-        }
+      const provider = window.localStorage.getItem("SELECTED_PROVIDER") || "gemini";
+      const apiKey = window.localStorage.getItem(`${provider.toUpperCase()}_API_KEY`);
 
-        const genAI = new GoogleGenerativeAI(apiKey);
-        // Menggunakan model gemini-2.0-pro
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-pro" });
-
-        const prompt = `Please summarize the following text. ${
-          instructions ? `Additional instructions: ${instructions}` : ""
-        }\n\nText to summarize: ${pageText}`;
-
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        summaries.push(formatSummary(response.text()));
+      if (!apiKey) {
+        toast({
+          title: "No API Key Found",
+          description: `Please set your ${provider === 'gemini' ? 'Gemini' : 'OpenAI'} API key in the settings`,
+          variant: "destructive",
+        });
+        return;
       }
       
-      setSummary(summaries.join('\n\n'));
+      // Collect all page text first
+      const allPageTexts = await Promise.all(
+        selectedPages.map(async (selection) => {
+          const page = await pdf.getPage(selection.pageNum);
+          const textContent = await page.getTextContent();
+          let pageText = textContent.items.map((item: any) => item.str).join(' ');
+          
+          if (!pageText.trim()) {
+            const viewport = page.getViewport({ scale: 2.0 });
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            
+            await page.render({
+              canvasContext: context!,
+              viewport: viewport
+            }).promise;
+            
+            pageText = await performOCR(canvas);
+          }
+          return { pageNum: selection.pageNum, text: pageText };
+        })
+      );
+      
+      // Create a comprehensive prompt that includes context about multiple pages
+      const contextPrompt = `Please provide a coherent summary of the following ${selectedPages.length > 1 ? 'pages' : 'page'} from an article. ${instructions ? `Additional instructions: ${instructions}\n\n` : ''}
+
+The content is from ${selectedPages.length} page${selectedPages.length > 1 ? 's' : ''} of a document. Please analyze the content, maintain the logical flow between pages, and provide a comprehensive summary that captures the main ideas and their relationships.\n\n`;
+
+      const pageTexts = allPageTexts
+        .map(({ pageNum, text }) => `Page ${pageNum}:\n${text}`)
+        .join('\n\n');
+
+      let summary = "";
+      if (provider === "gemini") {
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const selectedModel = window.localStorage.getItem("GEMINI_MODEL") || "gemini-pro";
+        const model = genAI.getGenerativeModel({ model: selectedModel });
+
+        const result = await model.generateContent(contextPrompt + pageTexts);
+        const response = await result.response;
+        summary = response.text();
+      } else {
+        const selectedModel = window.localStorage.getItem("OPENAI_MODEL") || "gpt-4o";
+        const response = await fetch("https://api.openai.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            model: selectedModel,
+            messages: [
+              {
+                role: "system",
+                content: "You are a helpful assistant that provides coherent and well-structured summaries of multi-page articles."
+              },
+              {
+                role: "user",
+                content: contextPrompt + pageTexts
+              }
+            ]
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`OpenAI API error: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        summary = data.choices[0].message.content;
+      }
+      
+      setSummary(formatSummary(summary));
       
       toast({
         title: "Success",
