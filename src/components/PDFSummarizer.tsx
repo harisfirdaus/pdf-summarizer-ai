@@ -128,7 +128,8 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
         }
 
         const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+        // Menggunakan model gemini-2.0-pro
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-pro" });
 
         const prompt = `Please summarize the following text. ${
           instructions ? `Additional instructions: ${instructions}` : ""
@@ -190,4 +191,3 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
 };
 
 export default PDFSummarizer;
-
