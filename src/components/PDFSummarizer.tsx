@@ -133,13 +133,22 @@ const PDFSummarizer = ({ file, instructions }: PDFSummarizerProps) => {
         })
       );
       
-      // Create a comprehensive prompt that includes context about multiple pages
+      // Create a comprehensive prompt that includes context about multiple pages and article continuations
       const contextPrompt = `Please provide a coherent summary of the following ${selectedPages.length > 1 ? 'pages' : 'page'} from an article. ${instructions ? `Additional instructions: ${instructions}\n\n` : ''}
 
-The content is from ${selectedPages.length} page${selectedPages.length > 1 ? 's' : ''} of a document. Please analyze the content, maintain the logical flow between pages, and provide a comprehensive summary that captures the main ideas and their relationships.\n\n`;
+IMPORTANT: The content is from ${selectedPages.length} page${selectedPages.length > 1 ? 's' : ''} of a document. Please follow these guidelines strictly:
+1. Each page may contain different articles - carefully identify article boundaries
+2. Focus ONLY on the target article - ignore unrelated content on the same page
+3. If an article continues across pages, maintain its logical flow and narrative continuity
+4. Look for clear indicators of article separation (e.g., headlines, topic changes)
+5. Do not mix content from different articles even if they appear on the same page
+6. If multiple articles are present, summarize ONLY the most relevant one based on the instructions
+7. If unsure about article boundaries, focus on maintaining thematic consistency
+
+Please provide a focused, coherent summary that accurately represents a single article's content.\n\n`;
 
       const pageTexts = allPageTexts
-        .map(({ pageNum, text }) => `Page ${pageNum}:\n${text}`)
+        .map(({ pageNum, text }) => `=== START OF PAGE ${pageNum} ===\n${text}\n=== END OF PAGE ${pageNum} ===`)
         .join('\n\n');
 
       let summary = "";
