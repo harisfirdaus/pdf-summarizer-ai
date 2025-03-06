@@ -7,6 +7,5 @@
   ],
   "outputDirectory": "pdf-summarizer-gemini/dist",
   "buildCommand": "cd pdf-summarizer-gemini && npm install && npm run build",
-  "installCommand": "cd pdf-summarizer-gemini && npm install",
-  "distDir": "pdf-summarizer-gemini/dist"
+  "installCommand": "cd pdf-summarizer-gemini && npm install"
 }
