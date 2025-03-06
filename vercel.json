@@ -5,5 +5,7 @@
       "destination": "/pdf-summarizer-gemini/$1"
     }
   ],
-  "outputDirectory": "pdf-summarizer-gemini/dist"
+  "outputDirectory": "pdf-summarizer-gemini/dist",
+  "buildCommand": "cd pdf-summarizer-gemini && npm install && npm run build",
+  "installCommand": "cd pdf-summarizer-gemini && npm install"
 }
