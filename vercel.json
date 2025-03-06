@@ -1,0 +1,9 @@
+{
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/pdf-summarizer-gemini/$1"
+    }
+  ],
+  "outputDirectory": "pdf-summarizer-gemini/dist"
+}
